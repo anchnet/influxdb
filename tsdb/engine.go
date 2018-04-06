@@ -158,18 +158,31 @@ type EngineOptions struct {
 	CompactionLimiter           limiter.Fixed
 	CompactionThroughputLimiter limiter.Rate
 	WALEnabled                  bool
+	MonitorDisabled             bool
+
+	// DatabaseFilter returns true if the specified database should be opened.
+	DatabaseFilter        func(database string) bool
+	RetentionPolicyFilter func(database, rp string) bool
+	ShardFilter           func(database, rp string, id uint64) bool
 
 	Config       Config
 	SeriesIDSets SeriesIDSets
 }
 
+func allDatabases(_ string) bool            { return true }
+func allRetentionPolicies(_, _ string) bool { return true }
+func allShards(_, _ string, _ uint64) bool  { return true }
+
 // NewEngineOptions returns the default options.
 func NewEngineOptions() EngineOptions {
 	return EngineOptions{
-		EngineVersion: DefaultEngine,
-		IndexVersion:  DefaultIndex,
-		Config:        NewConfig(),
-		WALEnabled:    true,
+		EngineVersion:         DefaultEngine,
+		IndexVersion:          DefaultIndex,
+		Config:                NewConfig(),
+		WALEnabled:            true,
+		DatabaseFilter:        allDatabases,
+		RetentionPolicyFilter: allRetentionPolicies,
+		ShardFilter:           allShards,
 	}
 }
 

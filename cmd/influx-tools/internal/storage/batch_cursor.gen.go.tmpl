@@ -1,0 +1,95 @@
+package storage
+
+import (
+	"context"
+
+	"github.com/influxdata/influxdb/tsdb"
+)
+
+{{range .}}
+
+// ********************
+// {{.Name}} BatchCursor
+
+type {{.name}}MultiShardBatchCursor struct {
+	tsdb.{{.Name}}BatchCursor
+	ctx    context.Context
+	itrs   tsdb.CursorIterators
+	req    *tsdb.CursorRequest
+	err    error
+	limit  uint64
+	count  uint64
+}
+
+func new{{.Name}}MultiShardBatchCursor(ctx context.Context, cur tsdb.{{.Name}}BatchCursor, rr *readRequest, req *tsdb.CursorRequest, itrs tsdb.CursorIterators) *{{.name}}MultiShardBatchCursor {
+	return &{{.name}}MultiShardBatchCursor{
+		{{.Name}}BatchCursor: cur,
+		ctx:   ctx,
+		req:   req,
+		itrs:  itrs,
+		limit: rr.limit,
+	}
+}
+
+func (c *{{.name}}MultiShardBatchCursor) Err() error        { return c.err }
+
+func (c *{{.name}}MultiShardBatchCursor) Next() (key []int64, value []{{.Type}}) {
+	for {
+		ks, vs := c.{{.Name}}BatchCursor.Next()
+		if len(ks) == 0 {
+			if c.nextBatchCursor() {
+				continue
+			}
+		}
+		c.count += uint64(len(ks))
+		if c.count > c.limit {
+			diff := c.count - c.limit
+			c.count -= diff
+			rem := uint64(len(ks)) - diff
+			ks = ks[:rem]
+			vs = vs[:rem]
+		}
+		return ks, vs
+	}
+}
+
+func (c *{{.name}}MultiShardBatchCursor) nextBatchCursor() bool {
+	if len(c.itrs) == 0 {
+		return false
+	}
+
+	c.{{.Name}}BatchCursor.Close()
+
+RETRY:
+	var itr tsdb.CursorIterator
+	var cur tsdb.Cursor
+	for cur == nil && len(c.itrs) > 0 {
+		itr, c.itrs = c.itrs[0], c.itrs[1:]
+		cur, _ = itr.Next(c.ctx, c.req)
+	}
+
+	var ok bool
+	if cur != nil {
+		var next tsdb.{{.Name}}BatchCursor
+		next, ok = cur.(tsdb.{{.Name}}BatchCursor)
+		if !ok {
+			cur.Close()
+			goto RETRY
+		}
+		c.{{.Name}}BatchCursor = next
+	} else {
+		c.{{.Name}}BatchCursor = {{.Name}}EmptyBatchCursor
+	}
+
+	return ok
+}
+
+type {{.name}}EmptyBatchCursor struct{}
+
+var {{.Name}}EmptyBatchCursor tsdb.{{.Name}}BatchCursor = &{{.name}}EmptyBatchCursor{}
+
+func (*{{.name}}EmptyBatchCursor) Err() error { return nil }
+func (*{{.name}}EmptyBatchCursor) Close() {}
+func (*{{.name}}EmptyBatchCursor) Next() (key []int64, value []{{.Type}}) { return nil, nil }
+
+{{end}}
